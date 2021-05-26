@@ -1,0 +1,17 @@
+version: "3.7"
+
+volumes:
+  postgresql: {}
+
+services:
+  postgresql:
+    image: postgres:13.3
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=test-db
+    volumes:
+      - postgresql:/var/lib/postgresql/data
+      - ./docker/postgresql/docker-entrypoint-initdb.d/create_user_for_postgres.sql:/docker-entrypoint-initdb.d/1_create_user.sql

@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "SampleConsole": {
+      "commandName": "Project",
+      "commandLineArgs": "DDL test",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
