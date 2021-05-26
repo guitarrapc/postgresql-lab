@@ -40,12 +40,37 @@ namespace SampleConsole.Models
                 , values, transaction, timeoutSec);
             return rows;
         }
+        public static async Task<int> UpdateLocationAsync(SampleConnection connection, IDbTransaction transaction, string location, int timeoutSec = 60)
+        {
+            var rows = await connection.Connection.ExecuteAsync(
+                @$"UPDATE {tableName} SET location = @location WHERE tenant_id = @tenantId;"
+                , new { location = location, tenantId = connection.Tenant }, transaction, timeoutSec);
+            return rows;
+        }
+        public static async Task<int> InsertPrepareAsync(SampleConnection connection, NpgsqlTransaction transaction, Condition value)
+        {
+            using (var cmd = new NpgsqlCommand(@$"INSERT INTO {tableName} ({columnNames}) VALUES (@{nameof(Location)}, @{nameof(Temperature)}, @{nameof(Humidity)}, @{nameof(TenantId)});", connection.Connection, transaction))
+            {
+                cmd.Parameters.Add(nameof(Location), NpgsqlTypes.NpgsqlDbType.Varchar);
+                cmd.Parameters.Add(nameof(Temperature), NpgsqlTypes.NpgsqlDbType.Double);
+                cmd.Parameters.Add(nameof(Humidity), NpgsqlTypes.NpgsqlDbType.Double);
+                cmd.Parameters.Add(nameof(TenantId), NpgsqlTypes.NpgsqlDbType.Integer);
+                await cmd.PrepareAsync();
+
+                cmd.Parameters[0].Value = value.Location;
+                cmd.Parameters[1].Value = value.Temperature;
+                cmd.Parameters[2].Value = value.Humidity;
+                cmd.Parameters[3].Value = value.TenantId;
+                var rows = await cmd.ExecuteNonQueryAsync();
+                return rows;
+            }
+        }
 
         public static async Task<IEnumerable<Condition>> GetAsync(IDbConnection connection, long tenantId, string location, int count, int timeoutSec = 60)
         {
             var conditions = await connection.QueryAsync<Condition>(
                 @$"SELECT * FROM {tableName} WHERE tenant_id = @{nameof(TenantId)} AND location = @{nameof(Location)} LIMIT {count};"
-                , new { TenantId = tenantId, Location = location  }, commandTimeout: timeoutSec);
+                , new { TenantId = tenantId, Location = location }, commandTimeout: timeoutSec);
             return conditions;
         }
 

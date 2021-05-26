@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SampleConsole.Data
@@ -23,10 +24,42 @@ namespace SampleConsole.Data
         public const string RowLevelSecuritySettingKey = "app.current_tenant";
     }
 
+    public class SampleConnection : IAsyncDisposable
+    {
+        public NpgsqlConnection Connection { get; private set; }
+        public long Tenant { get; }
+
+        private readonly ConnectionProvider _connectionProvider;
+
+        public SampleConnection(ConnectionProvider connectionProvider, long tenant)
+        {
+            _connectionProvider = connectionProvider;
+            Tenant = tenant;
+        }
+
+        public async Task GetConnectionAsync()
+        {
+            Connection = await _connectionProvider.GetConnectionAsync(Tenant);
+        }
+        public async Task GetConnectionAsync2()
+        {
+            Connection = await _connectionProvider.GetConnectionAsync2(Tenant);
+        }
+        public ValueTask<NpgsqlTransaction> BeginTransactionAsync(CancellationToken ct = default) => Connection.BeginTransactionAsync(ct);
+        public ValueTask<NpgsqlTransaction> BeginTransactionAsync(IsolationLevel level, CancellationToken ct = default) => Connection.BeginTransactionAsync(level, ct);
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Connection != null && Connection.State == ConnectionState.Open)
+            {
+                await Connection.QueryAsync($"SET SESSION {DbContextConstrants.RowLevelSecuritySettingKey} = DEFAULT");
+                await Connection.DisposeAsync();
+            }
+        }
+    }
     public class ConnectionProvider
     {
         public IConfiguration _config;
-        private IEnumerable<dynamic> before;
 
         public ConnectionProvider(IConfiguration config)
         {
@@ -37,21 +70,20 @@ namespace SampleConsole.Data
         {
             var conn = new NpgsqlConnection(_config.GetConnectionString("AppDbContext"));
             await conn.OpenAsync();
-            await conn.QueryAsync($"SET {DbContextConstrants.RowLevelSecuritySettingKey} = '{tenant}'");
+            await conn.QueryAsync($"SET SESSION {DbContextConstrants.RowLevelSecuritySettingKey} = '{tenant}'");
             var after = await conn.QueryAsync($"SHOW {DbContextConstrants.RowLevelSecuritySettingKey}");
             foreach (var item in after)
-                Console.WriteLine(item);
-            before = await conn.QueryAsync($"SHOW {DbContextConstrants.RowLevelSecuritySettingKey}");
+                Console.WriteLine($"{nameof(GetConnectionAsync)}: {item}");
             return conn;
         }
         public async Task<NpgsqlConnection> GetConnectionAsync2(long tenant)
         {
             var conn = new NpgsqlConnection(_config.GetConnectionString("AppDbContext"));
             await conn.OpenAsync();
-            var after = await conn.QueryAsync($"SHOW {DbContextConstrants.RowLevelSecuritySettingKey}");
-            foreach (var item in after)
-                Console.WriteLine(item);
-            await conn.QueryAsync($"SET {DbContextConstrants.RowLevelSecuritySettingKey} = '{tenant}'");
+            var before = await conn.QueryAsync($"SHOW {DbContextConstrants.RowLevelSecuritySettingKey}");
+            foreach (var item in before)
+                Console.WriteLine($"{nameof(GetConnectionAsync2)}: {item}");
+            await conn.QueryAsync($"SET SESSION {DbContextConstrants.RowLevelSecuritySettingKey} = '{tenant}'");
             return conn;
         }
     }

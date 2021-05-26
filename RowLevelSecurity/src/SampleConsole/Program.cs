@@ -32,11 +32,11 @@ namespace SampleConsole
 
     public class DDL : ConsoleAppBase
     {
-        private readonly ConnectionProvider _connection;
+        private readonly ConnectionProvider _provider;
         private readonly PostgresDbContext _dbContext;
-        public DDL(ConnectionProvider connection, PostgresDbContext dbContext)
+        public DDL(ConnectionProvider provider, PostgresDbContext dbContext)
         {
-            _connection = connection;
+            _provider = provider;
             _dbContext = dbContext;
         }
 
@@ -44,8 +44,8 @@ namespace SampleConsole
         public async Task Test(long tenant = 1, string location = "test", double temperature = 1.0, double humidity = 1.0)
         {
             Console.WriteLine("test insert data");
-            await using (var conn = await _connection.GetConnectionAsync(tenant))
-            using (var transaction = await conn.BeginTransactionAsync(Context.CancellationToken))
+            await using (var conn = await _provider.GetConnectionAsync(tenant))
+            await using (var transaction = await conn.BeginTransactionAsync(Context.CancellationToken))
             {
                 await Condition.InsertBulkAsync(conn, transaction, new[] {
                     new Condition
@@ -60,7 +60,7 @@ namespace SampleConsole
             }
 
             Console.WriteLine("test read from database");
-            await using var connection = await _connection.GetConnectionAsync2(tenant);
+            await using var connection = await _provider.GetConnectionAsync2(tenant);
             var conditions = await Condition.GetAsync(connection, tenant, location, 10);
             foreach (var condition in conditions.Take(10))
             {
@@ -68,11 +68,45 @@ namespace SampleConsole
             }
         }
 
+        [Command("test_prepare")]
+        public async Task TestPrepare(long tenant = 2, string location = "test", double temperature = 1.0, double humidity = 1.0)
+        {
+            Console.WriteLine("test insert data");
+            await using (var conn = new SampleConnection(_provider, tenant))
+            {
+                await conn.GetConnectionAsync();
+                await using (var transaction = await conn.BeginTransactionAsync(Context.CancellationToken))
+                {
+                    await Condition.InsertPrepareAsync(conn, transaction, new Condition
+                    {
+                        TenantId = tenant,
+                        Location = location,
+                        Temperature = temperature,
+                        Humidity = humidity,
+                    });
+
+                    await Condition.UpdateLocationAsync(conn, transaction, "foo", 2);
+                    await transaction.CommitAsync();
+                }
+            }
+
+            Console.WriteLine("test read from database");
+            await using (var conn = new SampleConnection(_provider, tenant))
+            {
+                await conn.GetConnectionAsync2();
+                var conditions = await Condition.GetAsync(conn.Connection, tenant, location, 10);
+                foreach (var condition in conditions.Take(10))
+                {
+                    Console.WriteLine($"{condition.Id}, {condition.TenantId}, {condition.Location}, {condition.Temperature}, {condition.Humidity}");
+                }
+            }
+        }
+
         [Command("keep")]
         public async Task Keep(long tenant)
         {
             Console.WriteLine($"keep inserting data");
-            await using var connection = await _connection.GetConnectionAsync(tenant);
+            await using var connection = await _provider.GetConnectionAsync(tenant);
 
             var current = 1;
             while (!Context.CancellationToken.IsCancellationRequested)
@@ -105,8 +139,8 @@ namespace SampleConsole
             .ToArray();
 
             Console.WriteLine($"insert random {count} data");
-            await using var connection = await _connection.GetConnectionAsync(tenant);
-            using (var transaction = await connection.BeginTransactionAsync(Context.CancellationToken))
+            await using var connection = await _provider.GetConnectionAsync(tenant);
+            await using (var transaction = await connection.BeginTransactionAsync(Context.CancellationToken))
             {
                 await connection.OpenAsync(Context.CancellationToken);
                 await Condition.InsertBulkAsync(connection, transaction, data);
@@ -160,7 +194,7 @@ namespace SampleConsole
                         // 10000 will cause timeout
                         foreach (var data in group.Buffer(1000))
                         {
-                            using (var transaction = await connection.BeginTransactionAsync(ct))
+                            await using (var transaction = await connection.BeginTransactionAsync(ct))
                             {
                                 try
                                 {
@@ -208,7 +242,7 @@ namespace SampleConsole
                     {
                         foreach (var data in group.Buffer(10000))
                         {
-                            using (var transaction = await connection.BeginTransactionAsync(ct))
+                            await using (var transaction = await connection.BeginTransactionAsync(ct))
                             {
                                 try
                                 {
